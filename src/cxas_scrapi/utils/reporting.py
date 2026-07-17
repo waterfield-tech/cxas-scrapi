@@ -379,6 +379,44 @@ def _render_trace(
     return html
 
 
+def _render_tool_check(r: typing.Any) -> str:
+    """Render the deterministic tool-call check for a sim run.
+
+    Sourced from the result's expected_tool_calls / actual_tool_calls /
+    missing_tool_calls / forbidden_tool_calls_hit -- the tools the agent
+    ACTUALLY invoked, not its text. Empty when no tool assertion was declared.
+    """
+    tc = r.get("tool_check", "n/a")
+    expected = r.get("expected_tool_calls", []) or []
+    actual = r.get("actual_tool_calls", []) or []
+    missing = r.get("missing_tool_calls", []) or []
+    forbidden_hit = r.get("forbidden_tool_calls_hit", []) or []
+    if tc == "n/a" and not expected and not actual:
+        return ""
+    cls = "met" if tc == "PASS" else ("not-met" if tc == "FAIL" else "")
+    html = '<div class="expectation">'
+    html += f'<span class="badge {cls}">tools: {_escape(tc)}</span> '
+    html += (
+        f'<span class="meta">expected: '
+        f"{_escape(', '.join(expected) or '(none)')} &nbsp;|&nbsp; actual: "
+        f"{_escape(', '.join(actual) or '(none)')}</span>"
+    )
+    if missing:
+        html += (
+            f'<br><span class="meta" style="color:#b00020;font-weight:600;">'
+            f"MISSING (declared but never called): "
+            f"{_escape(', '.join(missing))}</span>"
+        )
+    if forbidden_hit:
+        html += (
+            f'<br><span class="meta" style="color:#b00020;font-weight:600;">'
+            f"FORBIDDEN (called but must not): "
+            f"{_escape(', '.join(forbidden_hit))}</span>"
+        )
+    html += "</div>\n"
+    return html
+
+
 def _get_run_detail(
     r: typing.Any, ces_base: typing.Any, tools_map: typing.Any
 ) -> typing.Any:
@@ -392,9 +430,12 @@ def _get_run_detail(
         f'<span class="{run_cls}">'
         f"{'PASS' if r.get('passed') else 'FAIL'}</span>"
     )
+    _tc = r.get("tool_check", "n/a")
+    _tc_seg = f"tools: {_tc} | " if _tc and _tc != "n/a" else ""
     html += (
         f" | goals: {r.get('goals', '?')} | "
         f"expectations: {r.get('expectations', '?')} | "
+        f"{_tc_seg}"
         f"turns: {r.get('turns', '?')}</summary>\n"
     )
 
@@ -412,6 +453,8 @@ def _get_run_detail(
         html += _render_step_details(r.get("step_details", []))
 
         html += _render_expectation_details(r.get("expectation_details", []))
+
+        html += _render_tool_check(r)
 
         html += _render_trace(
             r.get("detailed_trace", []), tools_map, r.get("turns", "?")
@@ -770,6 +813,16 @@ def generate_combined_html_report(
                     failure_groups.setdefault(reason, set()).add(
                         ("sim", r["name"])
                     )
+            missing_tools = r.get("missing_tool_calls", []) or []
+            if missing_tools:
+                reason = f"Tool(s) NOT called: {', '.join(missing_tools)[:60]}"
+                failure_groups.setdefault(reason, set()).add(("sim", r["name"]))
+            forbidden_hit = r.get("forbidden_tool_calls_hit", []) or []
+            if forbidden_hit:
+                reason = (
+                    f"Forbidden tool(s) called: {', '.join(forbidden_hit)[:50]}"
+                )
+                failure_groups.setdefault(reason, set()).add(("sim", r["name"]))
 
     # Collect tool test failures
     if tool_results:
