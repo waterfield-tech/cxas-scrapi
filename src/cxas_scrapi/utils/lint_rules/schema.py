@@ -124,7 +124,12 @@ def _get_required_fields(cls) -> list[str]:  # noqa: ANN001
     for i, line in enumerate(lines):
         match = re.match(r"^\s+(\w+)\s+\([^)]+\):$", line)
         if match and i + 1 < len(lines):  # noqa: SIM102
-            if "REQUIRED" in lines[i + 1].upper():
+            # The marker must OPEN the description line. Matching "REQUIRED"
+            # anywhere (as this did between 1.7.0 and 1.8.0) misreads any field
+            # whose prose merely mentions the word -- e.g. Schema.required is
+            # documented "Optional. Required properties of Type.OBJECT.", so
+            # every OBJECT schema was reported as missing a mandatory field.
+            if lines[i + 1].strip().startswith("Required."):
                 required.append(match.group(1))
     return required
 

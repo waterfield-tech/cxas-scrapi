@@ -3115,3 +3115,65 @@ def test_t013_valid_dict_json(
 
     results = rule.check(f, f.read_text(), context)
     assert len(results) == 0
+
+
+# ── _get_required_fields: the "Required." marker must OPEN the line ──────────
+
+
+def test_get_required_fields_reads_the_required_marker() -> None:
+    """A field whose description OPENS with "Required." is mandatory."""
+    from cxas_scrapi.utils.lint_rules.schema import _get_required_fields  # noqa: PLC0415,I001
+
+    class Fake:
+        """A fake proto class.
+
+        Attributes:
+            name (str):
+                Required. The resource name.
+            description (str):
+                Optional. Free text.
+        """
+
+    assert _get_required_fields(Fake) == ["name"]
+
+
+def test_get_required_fields_ignores_required_mentioned_mid_sentence() -> None:
+    """"Optional. Required properties of ..." must NOT be read as mandatory.
+
+    Regression test. Between 1.7.0 and 1.8.0 this check matched "REQUIRED"
+    anywhere in the description line, so `Schema.required` -- documented
+    "Optional. Required properties of Type.OBJECT." -- was treated as a
+    mandatory field. Every app declaring an OBJECT variable then failed V001
+    with "Missing required fields for Schema: ['required']", which blocked
+    pushes behind the pre-push lint gate.
+    """
+    from cxas_scrapi.utils.lint_rules.schema import _get_required_fields  # noqa: PLC0415,I001
+
+    class Fake:
+        """A fake proto class.
+
+        Attributes:
+            required (MutableSequence[str]):
+                Optional. Required properties of Type.OBJECT.
+            nullable (bool):
+                Optional. Indicates if the value may be null.
+        """
+
+    assert _get_required_fields(Fake) == []
+
+
+def test_get_required_fields_on_the_real_ces_schema_proto() -> None:
+    """The real types.Schema requires only `type_`, never `required`.
+
+    `type_` is documented "Required. The type of the data." and is satisfied by
+    a schema's "type" key (via the camelCase fallback). `required` is documented
+    "Optional. Required properties of Type.OBJECT." and must NOT be demanded --
+    that is the regression this guards.
+    """
+    from google.cloud.ces_v1beta import types  # noqa: PLC0415,I001
+
+    from cxas_scrapi.utils.lint_rules.schema import _get_required_fields  # noqa: PLC0415,I001
+
+    got = _get_required_fields(types.Schema)
+    assert got == ["type_"]
+    assert "required" not in got
